@@ -1,0 +1,400 @@
+{
+  "info": {
+    "name": "Acme Trading - Market Data Service",
+    "description": "trading-market-data-service (default port 8082). All data is seeded in memory by QuoteService: AAPL, MSFT and GOOG only.\n\nRequests are independent -- there is no state to chain and nothing is written.\n\nThe 'Error contract' folder records what the service returns TODAY. MarketDataExceptionHandler in MarketDataController.java is annotated @RestController instead of @ControllerAdvice, so its @ExceptionHandler is scoped to a class with no request mappings and never fires. The handler is written to return 404 with {\"error\": \"...\"}, but TradingException escapes to Boot's default handler and the caller gets 500.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8082",
+      "type": "string"
+    },
+    {
+      "key": "symbol",
+      "value": "AAPL",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Quotes",
+      "item": [
+        {
+          "name": "Get quote",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const q = pm.response.json();",
+                  "pm.test('symbol is normalised', () => pm.expect(q.symbol).to.eql('AAPL'));",
+                  "pm.test('bid is below ask', () => pm.expect(Number(q.bid)).to.be.below(Number(q.ask)));",
+                  "pm.test('carries a last trade and volume', () => {",
+                  "    pm.expect(Number(q.last)).to.be.above(0);",
+                  "    pm.expect(Number(q.volume)).to.be.above(0);",
+                  "});",
+                  "pm.test('timestamp is stamped per read', () => pm.expect(q.timestamp).to.be.a('string').and.not.empty);",
+                  "pm.test('price scale is preserved on the wire', () => {",
+                  "    pm.expect(pm.response.text(), 'server should emit 189.50, not 189.5').to.include('\"bid\":189.50');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/quotes/{{symbol}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quotes",
+                "{{symbol}}"
+              ]
+            },
+            "description": "Single quote. The symbol is trimmed and upper-cased, so 'aapl' works too."
+          }
+        },
+        {
+          "name": "Get quote (lower case symbol)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('normalised to AAPL', () => pm.expect(pm.response.json().symbol).to.eql('AAPL'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/quotes/aapl",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quotes",
+                "aapl"
+              ]
+            },
+            "description": "Same quote via a lower-case symbol, proving normalisation over the wire."
+          }
+        },
+        {
+          "name": "Batch quotes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const quotes = pm.response.json();",
+                  "pm.test('one quote per requested symbol, in order', () => {",
+                  "    pm.expect(quotes.map(q => q.symbol)).to.eql(['AAPL', 'MSFT', 'GOOG']);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/quotes/batch",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quotes",
+                "batch"
+              ]
+            },
+            "description": "Body is a bare JSON array of symbols. Results come back in the order requested.",
+            "body": {
+              "mode": "raw",
+              "raw": "[\"AAPL\", \"msft\", \"GOOG\"]",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Order book",
+      "item": [
+        {
+          "name": "Get order book",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const book = pm.response.json();",
+                  "pm.test('two levels a side', () => {",
+                  "    pm.expect(book.bids).to.have.lengthOf(2);",
+                  "    pm.expect(book.asks).to.have.lengthOf(2);",
+                  "});",
+                  "pm.test('book is not crossed', () => {",
+                  "    pm.expect(Number(book.bids[0].price)).to.be.below(Number(book.asks[0].price));",
+                  "});",
+                  "pm.test('bids descend and asks ascend', () => {",
+                  "    pm.expect(Number(book.bids[1].price)).to.be.below(Number(book.bids[0].price));",
+                  "    pm.expect(Number(book.asks[1].price)).to.be.above(Number(book.asks[0].price));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orderbook/{{symbol}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orderbook",
+                "{{symbol}}"
+              ]
+            },
+            "description": "Two levels a side, derived from the quote: bids step down from the bid by 5c, asks step up from the ask by 5c."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Instruments",
+      "item": [
+        {
+          "name": "List instruments",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const instruments = pm.response.json();",
+                  "pm.test('three seeded instruments', () => pm.expect(instruments).to.have.lengthOf(3));",
+                  "pm.test('all are tradable NASDAQ equities in USD', () => {",
+                  "    instruments.forEach(i => {",
+                  "        pm.expect(i.instrumentType).to.eql('EQUITY');",
+                  "        pm.expect(i.exchange).to.eql('NASDAQ');",
+                  "        pm.expect(i.currency).to.eql('USD');",
+                  "        pm.expect(i.tradable).to.eql(true);",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/instruments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "instruments"
+              ]
+            },
+            "description": "Every seeded instrument. Three today: AAPL, MSFT, GOOG."
+          }
+        },
+        {
+          "name": "Get instrument metadata",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const m = pm.response.json();",
+                  "pm.test('symbol matches the request', () => pm.expect(m.symbol).to.eql(pm.collectionVariables.get('symbol')));",
+                  "pm.test('carries name, tick and lot size', () => {",
+                  "    pm.expect(m.name).to.be.a('string').and.not.empty;",
+                  "    pm.expect(Number(m.tickSize)).to.be.above(0);",
+                  "    pm.expect(Number(m.lotSize)).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/instruments/{{symbol}}/metadata",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "instruments",
+                "{{symbol}}",
+                "metadata"
+              ]
+            },
+            "description": "Full reference record for one instrument."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Error contract (records current behaviour)",
+      "item": [
+        {
+          "name": "Unknown symbol -> 500 (should be 404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('CURRENT behaviour: 500', () => pm.response.to.have.status(500));",
+                  "pm.test('INTENDED would be 404 -- see collection description', () => {",
+                  "    pm.expect(pm.response.code, 'if this is 404 the bug is fixed; update this collection').to.not.eql(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/quotes/NOSUCH",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quotes",
+                "NOSUCH"
+              ]
+            },
+            "description": "TradingException escapes because the handler is @RestController rather than @ControllerAdvice. Intended: 404 with {\"error\": \"Quote not found for symbol: NOSUCH\"}."
+          }
+        },
+        {
+          "name": "Unknown instrument -> 500 (should be 404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('CURRENT behaviour: 500', () => pm.response.to.have.status(500));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/instruments/NOSUCH/metadata",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "instruments",
+                "NOSUCH",
+                "metadata"
+              ]
+            },
+            "description": "Same root cause. Intended: 404 with {\"error\": \"Instrument not found: NOSUCH\"}."
+          }
+        },
+        {
+          "name": "One bad symbol fails the whole batch -> 500",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('CURRENT behaviour: 500', () => pm.response.to.have.status(500));",
+                  "pm.test('no partial results are returned', () => {",
+                  "    pm.expect(pm.response.json()).to.not.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/quotes/batch",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quotes",
+                "batch"
+              ]
+            },
+            "description": "The batch is all-or-nothing: no partial results and no per-symbol error entries. A caller cannot tell which symbol failed from the response.",
+            "body": {
+              "mode": "raw",
+              "raw": "[\"AAPL\", \"NOSUCH\"]",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
